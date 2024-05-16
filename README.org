@@ -1,0 +1,65 @@
+* pgviz
+*** visualize foreign-key relations in postgresql
+
+This program produces a graph diagrams where the nodes are tables and the edges
+are foreign-key relations. There is a small query language to specify the tables
+that should be included in the diagram.
+
+Using the [[https://github.com/devrimgunduz/pagila][Pagila]] schema as an example:
+
+#+begin_src
+pgviz --out pagila.svg --format svg "within 2 film"
+#+end_src
+
+produces
+
+[[.images/pagila.svg]]
+
+** Query language
+
+The query language includes:
+
+*** Terminals
+
+- ~within <n: integer> <t: table name>~ :: includes all tables within ~n~
+  edges of ~t~
+- ~schema <s: schema name>~ :: includes tables in the schema whose name is equal
+  to ~s~
+- ~table <t: table name>~ :: includes tables whose name is equal to ~t~
+- ~tables <ts: comma-separated list of table names>~ :: includes tables whose
+  name is equal to an element of ~ts~
+
+*** Non-terminals
+
+- ~<lhs: query> and <rhs: query>~ :: include tables that match ~lhs~ and ~rhs~
+- ~<lhs: query> or <rhs: query>~ :: include tables that match ~lhs~ or ~rhs~
+- ~<lhs: query> - <rhs: query>~ :: include tables that match ~lhs~, but do not match ~rhs~
+
+** Colors
+
+Columns have background colors that indicate certain attributes, for example:
+nullable columns are gray, unique columns are green, primary key columns are
+blue, columns that are both nullable and unique are a darker green.
+
+** Installation
+
+*** Cargo
+
+~cd~ into ~src~ and ~cargo build~ as usual. ~graphviz~ is a runtime dependency.
+
+*** Nix
+
+~nix build~ will compile the binary that references a nix-pinned graphviz. You
+can also run it directly with
+
+#+begin_src 
+nix run "github:tstat/pgviz" -- <args>
+#+end_src
+
+or add it to your nix registry with
+
+#+begin_src 
+nix registry add pgviz "github:tstat/pgviz"
+#+end_src
+
+then you can run it with ~nix run pgviz -- <args>~
