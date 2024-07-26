@@ -2,6 +2,10 @@
 name = "pgviz"
 version = "0.1.0"
 edition = "2021"
+authors = ["Travis Staton"]
+description = """
+Visualize PostgreSQL tables/foreign-key constraints
+"""
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
