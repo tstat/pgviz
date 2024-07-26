@@ -63,7 +63,7 @@ pub struct Db {
 
 pub async fn write_graph<'a, W: io::Write>(
     conn_str: &str,
-    dont_follow: &Option<String>,
+    dont_follow: Option<Vec<filter::Eval<'a>>>,
     edge_labels: bool,
     filter: Vec<filter::Eval<'a>>,
     output: &mut W,
@@ -98,11 +98,10 @@ pub async fn write_graph<'a, W: io::Write>(
             .or_insert(vec![x.source]);
     }
     let mut tables = get_tables(&transaction).await?;
-    let dont_follow: Option<BTreeSet<Oid>> = match dont_follow.as_ref() {
+    let dont_follow: Option<BTreeSet<Oid>> = match dont_follow {
         None => None,
-        Some(s) => {
-            let res = get_matching_tables(&transaction, s).await?.collect().await;
-            Some(res)
+        Some(dont_follow) => {
+            Some(filter::apply(&transaction, &tables, dont_follow, &None, &fk_map, &rfk_map).await?)
         }
     };
     let visible = filter::apply(

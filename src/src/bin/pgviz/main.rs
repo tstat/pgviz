@@ -18,6 +18,10 @@ async fn main() -> Result<(), tokio_postgres::Error> {
         }
         _ => args.query,
     };
+    let dont_follow_filter = args
+        .dont_follow
+        .as_ref()
+        .map(|x| pgviz::filter::parser::parse(x));
     let filter = pgviz::filter::parser::parse(&input_str);
     // Take the format as given, or from the output file extension, or default
     // to Dot
@@ -57,7 +61,7 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     };
     pgviz::write_graph(
         &args.connection_string,
-        &args.dont_follow,
+        dont_follow_filter,
         args.edge_labels,
         filter,
         &mut write_handle,

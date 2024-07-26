@@ -11,7 +11,7 @@ pub struct Args {
     /// Query for tables to be excluded from bfs
     #[arg(long)]
     pub dont_follow: Option<String>,
-    /// A file path to write output (defaults to stdout)
+    /// Output file path (defaults to stdout)
     #[arg(short, long)]
     pub out: Option<PathBuf>,
     /// Label edges with "on update"/"on delete" actions
