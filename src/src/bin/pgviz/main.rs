@@ -19,21 +19,34 @@ async fn main() -> Result<(), tokio_postgres::Error> {
         _ => args.query,
     };
     let filter = pgviz::filter::parser::parse(&input_str);
-    let mut write_handle: WriteHandle = match args.format {
+    // Take the format as given, or from the output file extension, or default
+    // to Dot
+    let format = args.format.unwrap_or_else(|| {
+        match args
+            .out
+            .as_ref()
+            .and_then(|o| o.extension())
+            .and_then(|o| o.to_str())
+        {
+            Some("pdf") => Format::Pdf,
+            Some("svg") => Format::Svg,
+            _ => Format::Dot,
+        }
+    });
+    let mut write_handle: WriteHandle = match format {
         Format::Dot => match args.out {
             None => WriteHandle::Stdout(LineWriter::new(stdout())),
             Some(out_arg) => WriteHandle::File(BufWriter::new(File::create(out_arg).unwrap())),
         },
         _ => {
-            let format_arg = match args.format {
+            let format_arg = match format {
                 Format::Svg => "svg",
                 Format::Pdf => "pdf",
                 Format::Dot => "dot",
             };
             let mut cmd = Command::new("dot");
             cmd.arg(format!("-T{format_arg}"));
-            if let Some(mut out_arg) = args.out {
-                out_arg.set_extension(format_arg);
+            if let Some(out_arg) = args.out {
                 cmd.arg(format!("-o{}", out_arg.display()));
             }
             cmd.stdin(Stdio::piped());

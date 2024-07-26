@@ -18,8 +18,8 @@ pub struct Args {
     #[arg(short, long)]
     pub edge_labels: bool,
     /// Output format
-    #[arg(value_enum, short, long, default_value_t=Format::Dot)]
-    pub format: Format,
+    #[arg(value_enum, short, long)]
+    pub format: Option<Format>,
     /// The query string, or "-" to accept the query on stdin
     pub query: String,
 }
