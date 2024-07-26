@@ -8,7 +8,7 @@ that should be included in the diagram.
 Using the [[https://github.com/devrimgunduz/pagila][Pagila]] schema as an example:
 
 #+begin_src
-pgviz --out pagila.svg --format svg "within 2 film"
+pgviz --out pagila.svg "within 2 film"
 #+end_src
 
 produces
