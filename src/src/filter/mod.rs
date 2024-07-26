@@ -23,7 +23,7 @@ pub async fn apply<'a, 'b>(
                     num_edges,
                 } => {
                     let mut visible = BTreeSet::new();
-                    let oids = get_matching_tables(&transaction, &table_name).await?;
+                    let oids = get_matching_tables(transaction, table_name).await?;
                     let mut oids = std::pin::pin!(oids);
                     while let Some(oid) = oids.next().await {
                         bfs(&mut visible, dont_follow, fks, rfks, num_edges, oid);
@@ -31,7 +31,7 @@ pub async fn apply<'a, 'b>(
                     stack.push(visible);
                 }
                 Eval::Schema { schema_name } => {
-                    let oids = get_matching_schemas(&transaction, &schema_name)
+                    let oids = get_matching_schemas(transaction, schema_name)
                         .await?
                         .collect()
                         .await;
@@ -82,7 +82,7 @@ pub fn bfs(
         let mut queue: VecDeque<(Oid, u32)> = VecDeque::new();
         queue.push_back((initial, fuel));
         while let Some((oid, fuel)) = queue.pop_front() {
-            if let None = dont_follow.as_ref().and_then(|x| x.get(&oid)) {
+            if dont_follow.as_ref().and_then(|x| x.get(&oid)).is_none() {
                 let fuel = fuel - 1;
                 if let Some(targets) = fks.get(&oid) {
                     for tgt in targets {

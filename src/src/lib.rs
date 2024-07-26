@@ -266,7 +266,7 @@ impl Table {
             self.name
         )
         .unwrap();
-        for (_, col) in &self.columns {
+        for col in self.columns.values() {
             let bg_color: &str = match (col.not_null, col.column_constraint) {
                 (_, Some(ColumnConstraint::PrimaryKey)) => PRIMARY_KEY_COLOR,
                 (true, Some(ColumnConstraint::Unique)) => UNIQUE_COLOR,
@@ -283,8 +283,8 @@ impl Table {
         }
         for conkeys in &self.composite_unique_constraints {
             let conkeys_named: Vec<&str> = conkeys
-                .into_iter()
-                .map(|x| self.columns.get(&x).unwrap().name.as_str())
+                .iter()
+                .map(|x| self.columns.get(x).unwrap().name.as_str())
                 .collect();
             write!(
                 &mut label_string,
@@ -293,9 +293,9 @@ impl Table {
             ).unwrap();
         }
         write!(&mut label_string, "</table>").unwrap();
-        write!(
+        writeln!(
             f,
-            "\"{}\" [ label = <{}> shape = \"plain\"]\n",
+            "\"{}\" [ label = <{}> shape = \"plain\"]",
             self.oid, &label_string
         )?;
         Ok(())
@@ -309,15 +309,15 @@ pub fn write_dot<W: io::Write>(
     visible: &BTreeSet<Oid>,
     edge_labels: bool,
 ) -> io::Result<()> {
-    write!(f, "digraph g {{\n")?;
-    write!(f, "graph [nodesep=\"2.0\"]\n")?;
-    write!(
+    writeln!(f, "digraph g {{")?;
+    writeln!(f, "graph [nodesep=\"2.0\"]")?;
+    writeln!(
         f,
-        "node [fontcolor=\"#000000\" fontname=\"Helvetica,sans-serif\"]\n"
+        "node [fontcolor=\"#000000\" fontname=\"Helvetica,sans-serif\"]"
     )?;
-    write!(
+    writeln!(
         f,
-        "edge [fontname=\"Helvetica,sans-serif\" fontsize=10.0 labeldistance=2.0]\n"
+        "edge [fontname=\"Helvetica,sans-serif\" fontsize=10.0 labeldistance=2.0]"
     )?;
     for oid in visible {
         if let Some(tbl) = tables.get(oid) {
@@ -333,18 +333,18 @@ pub fn write_dot<W: io::Write>(
                     } else {
                         "".to_string()
                     };
-                    write!(
+                    writeln!(
                         f,
-                        "\"{}\":f{} -> \"{}\":f{} {edge_label}\n",
+                        "\"{}\":f{} -> \"{}\":f{} {edge_label}",
                         fk.source, src_col, fk.target, tgt_col
                     )?;
                 }
                 _ => {
-                    write!(f, "\"{}\" -> \"{}\"\n", fk.source, fk.target)?;
+                    writeln!(f, "\"{}\" -> \"{}\"", fk.source, fk.target)?;
                 }
             }
         }
     }
-    write!(f, "}}\n")?;
+    writeln!(f, "}}")?;
     Ok(())
 }

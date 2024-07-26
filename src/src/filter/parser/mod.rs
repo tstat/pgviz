@@ -24,7 +24,7 @@ pub enum Expr<'a> {
     },
 }
 
-pub fn parse<'a>(input: &'a str) -> Vec<Eval<'a>> {
+pub fn parse(input: &str) -> Vec<Eval<'_>> {
     let parser = grammar::ExprParser::new();
     parser.parse(input).unwrap().postfix()
 }
