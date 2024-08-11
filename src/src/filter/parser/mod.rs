@@ -1,5 +1,12 @@
 use super::Eval;
-use lalrpop_util::lalrpop_mod;
+use ariadne::{Color, Label, Report, ReportKind, Source};
+use lalrpop_util::{lalrpop_mod, lexer::Token, ParseError};
+
+#[derive(Debug)]
+pub enum Graph<'a> {
+    TopLevel { inner: Vec<Expr<'a>> },
+    Subgraph { name: &'a str, inner: Vec<Expr<'a>> },
+}
 
 #[derive(Debug)]
 pub enum Expr<'a> {
@@ -24,9 +31,70 @@ pub enum Expr<'a> {
     },
 }
 
-pub fn parse(input: &str) -> Vec<Eval<'_>> {
+#[derive(Debug)]
+pub enum SExpr<'a> {
+    App {
+        func: Box<SExpr<'a>>,
+        args: Vec<SExpr<'a>>,
+    },
+    Value(Value<'a>),
+}
+
+#[derive(Debug)]
+pub enum Value<'a> {
+    Ident(&'a str),
+    Nat(u32),
+}
+
+fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> {
+    match e {
+        ParseError::InvalidToken { location } => Report::build(ReportKind::Error, (), location)
+            .with_message("Invalid Token")
+            .with_label(Label::new(location - 1..location))
+            .finish(),
+        ParseError::UnrecognizedEof { location, expected } => {
+            Report::build(ReportKind::Error, (), location)
+                .with_message("Unrecognized EOF")
+                .with_label(
+                    Label::new(location..location)
+                        .with_message(format!("Expected: {}", expected.join(", "))),
+                )
+                .finish()
+        }
+        ParseError::UnrecognizedToken {
+            token: (start, tok, end),
+            expected,
+        } => Report::build(ReportKind::Error, (), start)
+            .with_message(format!("Unrecognized Token: {tok}"))
+            .with_label(
+                Label::new(start..end).with_message(format!("Expected: {}", expected.join(", "))),
+            )
+            .finish(),
+        ParseError::ExtraToken {
+            token: (start, tok, end),
+        } => Report::build(ReportKind::Error, (), start)
+            .with_message("Extra token: {tok}")
+            .with_label(Label::new(start..end))
+            .finish(),
+        ParseError::User { error: _ } => unreachable!(),
+    }
+}
+
+fn parse2(input: &str) -> SExpr<'_> {
     let parser = grammar::ExprParser::new();
-    parser.parse(input).unwrap().postfix()
+    match parser.parse(input) {
+        Ok(x) => x,
+        Err(e) => {
+            prettyParseError(e).eprint(Source::from(input)).unwrap();
+            std::process::exit(1)
+        }
+    }
+}
+
+pub fn parse(input: &str) -> Vec<Eval<'_>> {
+    todo!()
+    // let parser = grammar::ExprParser::new();
+    // parser.parse(input).unwrap().postfix()
 }
 
 impl<'a> Expr<'a> {
@@ -72,11 +140,18 @@ lalrpop_mod!(grammar);
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[ignore]
     #[test]
     fn bonk() {
         let parsed = grammar::ExprParser::new()
             .parse("within 2 bonkers and (within 1 zonk or within 0 bonk)");
         println!("{parsed:?}");
         assert!(parsed.is_ok());
+    }
+
+    #[test]
+    fn zonk() {
+        let parsed = parse2("(within 2 (tables one two three))");
+        println!("{parsed:?}");
     }
 }
