@@ -1,13 +1,23 @@
 use std::str::FromStr;
-use super::{Graph, Expr, SExpr, Value};
+use super::{Graph, Ann, Expr, SExpr, Value};
 
 grammar;
 
-pub Expr: SExpr<'input> = {
-    "(" <func:Expr> <args: Expr*> ")" => SExpr::App { func: Box::new(func), args },
+pub Expr: Ann<SExpr<'input>> = {
+    <x: Ann<RawExpr>> => x,
+}
+
+RawExpr: SExpr<'input> = {
+    "(" <func: Expr> <args: Expr*> ")" => SExpr::App { func: Box::new(func), args },
     <x: Ident> => SExpr::Value(Value::Ident(x)),
     <x: Nat> => SExpr::Value(Value::Nat(x)),
-}
+};
+
+Ann<T>: Ann<T> = {
+    <start: @L> <inner: T> <end: @R> => {
+            Ann { start, end, inner }
+    }
+};
 
 Nat: u32 = <s:r"[0-9]+"> => u32::from_str(s).unwrap();
 Ident: &'input str = <s:r"[a-zA-Z_-][[:alnum:]]*"> => s;

@@ -32,10 +32,17 @@ pub enum Expr<'a> {
 }
 
 #[derive(Debug)]
+pub struct Ann<T> {
+    start: usize,
+    end: usize,
+    inner: T,
+}
+
+#[derive(Debug)]
 pub enum SExpr<'a> {
     App {
-        func: Box<SExpr<'a>>,
-        args: Vec<SExpr<'a>>,
+        func: Box<Ann<SExpr<'a>>>,
+        args: Vec<Ann<SExpr<'a>>>,
     },
     Value(Value<'a>),
 }
@@ -44,6 +51,18 @@ pub enum SExpr<'a> {
 pub enum Value<'a> {
     Ident(&'a str),
     Nat(u32),
+}
+
+impl<'a> SExpr<'a> {
+    fn postfix(&self) -> Vec<Eval<'a>> {
+        let mut eval_queue = Vec::new();
+        let mut expr_queue: Vec<&SExpr<'a>> = vec![self];
+
+        while let Some(filt) = expr_queue.pop() {
+            todo!()
+        }
+        eval_queue
+    }
 }
 
 fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> {
@@ -73,14 +92,14 @@ fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> 
         ParseError::ExtraToken {
             token: (start, tok, end),
         } => Report::build(ReportKind::Error, (), start)
-            .with_message("Extra token: {tok}")
+            .with_message(format!("Extra token: {tok}"))
             .with_label(Label::new(start..end))
             .finish(),
         ParseError::User { error: _ } => unreachable!(),
     }
 }
 
-fn parse2(input: &str) -> SExpr<'_> {
+fn parse2(input: &str) -> Ann<SExpr<'_>> {
     let parser = grammar::ExprParser::new();
     match parser.parse(input) {
         Ok(x) => x,
