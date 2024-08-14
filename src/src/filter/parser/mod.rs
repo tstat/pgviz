@@ -53,16 +53,50 @@ pub enum Value<'a> {
     Nat(u32),
 }
 
-impl<'a> SExpr<'a> {
+impl<'a> Ann<SExpr<'a>> {
+    fn infer(&self) -> Type {
+        match &self.inner {
+            SExpr::Value(Value::Ident(_)) => Type::String,
+            SExpr::Value(Value::Nat(_)) => Type::Natural,
+            SExpr::App { func, args } => {
+                let funcType = func.infer();
+                let res = args.iter().fold(funcType, |b, a| {
+                    let (input, output) = match b {
+                        Type::Arr { lhs, rhs } => (lhs, rhs),
+                        _ => panic!("malformed type"),
+                    };
+                    let argType = a.infer();
+                    if *input != argType {
+                        panic!("malformed type");
+                    }
+                    *output
+                });
+                res
+            }
+        }
+    }
+
     fn postfix(&self) -> Vec<Eval<'a>> {
         let mut eval_queue = Vec::new();
-        let mut expr_queue: Vec<&SExpr<'a>> = vec![self];
+        let mut expr_queue: Vec<&Ann<SExpr<'a>>> = vec![self];
 
         while let Some(filt) = expr_queue.pop() {
             todo!()
         }
         eval_queue
     }
+}
+
+enum Constraint<'a> {
+    IsType { term: &'a Ann<SExpr<'a>>, typ: Type },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Type {
+    Natural,
+    String,
+    Query,
+    Arr { lhs: Box<Type>, rhs: Box<Type> },
 }
 
 fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> {
@@ -127,12 +161,13 @@ impl<'a> Expr<'a> {
                     table_name,
                     num_edges,
                 } => {
-                    eval_queue.push(Eval::Within {
-                        table_name,
-                        num_edges: *num_edges,
-                    });
+                    todo!();
+                    // eval_queue.push(Eval::Within {
+                    //     table_name,
+                    //     num_edges: *num_edges,
+                    // });
                 }
-                Expr::Schema { schema_name } => eval_queue.push(Eval::Schema { schema_name }),
+                Expr::Schema { schema_name } => todo!(), // eval_queue.push(Eval::Schema { schema_name }),
                 Expr::Difference { lhs, rhs } => {
                     eval_queue.push(Eval::Difference);
                     expr_queue.push(lhs);
