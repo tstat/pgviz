@@ -1,9 +1,9 @@
 * pgviz
 *** visualize foreign-key relations in postgresql
 
-This program produces a graph diagrams where the nodes are tables and the edges
-are foreign-key relations. There is a small query language to specify the tables
-that should be included in the diagram.
+This program produces diagrams of graphs where the nodes are tables and the
+edges are foreign-key relations. There is a small query language to specify the
+tables that should be included in the diagram.
 
 Using the [[https://github.com/devrimgunduz/pagila][Pagila]] schema as an example:
 
