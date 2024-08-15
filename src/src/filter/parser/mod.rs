@@ -1,4 +1,6 @@
-use super::Eval;
+use std::ops::Range;
+
+use super::{Eval, Literal};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use lalrpop_util::{lalrpop_mod, lexer::Token, ParseError};
 
@@ -41,7 +43,7 @@ pub struct Ann<T> {
 #[derive(Debug)]
 pub enum SExpr<'a> {
     App {
-        func: Box<Ann<SExpr<'a>>>,
+        func: Ann<&'a str>,
         args: Vec<Ann<SExpr<'a>>>,
     },
     Value(Value<'a>),
@@ -50,30 +52,181 @@ pub enum SExpr<'a> {
 #[derive(Debug)]
 pub enum Value<'a> {
     Ident(&'a str),
+    String(&'a str),
     Nat(u32),
 }
 
+static SCHEMA_SIG: FuncSig = FuncSig {
+    args: &[Type::String],
+    rest: Some(Type::String),
+    typ: Type::Query,
+};
+
+static TABLE_SIG: FuncSig = FuncSig {
+    args: &[Type::String],
+    rest: Some(Type::String),
+    typ: Type::Query,
+};
+
+static WITHIN_SIG: FuncSig = FuncSig {
+    args: &[Type::Natural, Type::Query],
+    rest: None,
+    typ: Type::Query,
+};
+
+static OR_SIG: FuncSig = FuncSig {
+    args: &[Type::Query],
+    rest: Some(Type::Query),
+    typ: Type::Query,
+};
+
+static AND_SIG: FuncSig = FuncSig {
+    args: &[Type::Query],
+    rest: Some(Type::Query),
+    typ: Type::Query,
+};
+
+static DIFF_SIG: FuncSig = FuncSig {
+    args: &[Type::Query, Type::Query],
+    rest: None,
+    typ: Type::Query,
+};
+
+struct FuncSig {
+    args: &'static [Type],
+    rest: Option<Type>,
+    typ: Type,
+}
+
+fn get_func_sig(name: &str) -> Option<&'static FuncSig> {
+    match name {
+        "table" => Some(&TABLE_SIG),
+        "within" => Some(&WITHIN_SIG),
+        "schema" => Some(&SCHEMA_SIG),
+        "or" => Some(&OR_SIG),
+        "and" => Some(&AND_SIG),
+        "-" => Some(&DIFF_SIG),
+        _ => None,
+    }
+}
+
+fn mismatch(expr: &Ann<SExpr<'_>>, expected: Type, actual: Type) -> Report<'static> {
+    Report::build(ReportKind::Error, (), expr.start)
+        .with_label(
+            Label::new(expr.start..expr.end)
+                .with_color(Color::Red)
+                .with_message(format!(
+                    "Expected something of type: {expected:?}, but this has type: {actual:?}"
+                )),
+        )
+        .with_message("Type mismatch")
+        .finish()
+}
+
+fn assert_type(expr: &Ann<SExpr<'_>>, expected: Type, actual: Type) -> Result<(), Report<'static>> {
+    if expected != actual {
+        return Err(mismatch(expr, expected, actual));
+    }
+    Ok(())
+}
+
 impl<'a> Ann<SExpr<'a>> {
-    fn infer(&self) -> Type {
-        match &self.inner {
-            SExpr::Value(Value::Ident(_)) => Type::String,
-            SExpr::Value(Value::Nat(_)) => Type::Natural,
-            SExpr::App { func, args } => {
-                let funcType = func.infer();
-                let res = args.iter().fold(funcType, |b, a| {
-                    let (input, output) = match b {
-                        Type::Arr { lhs, rhs } => (lhs, rhs),
-                        _ => panic!("malformed type"),
-                    };
-                    let argType = a.infer();
-                    if *input != argType {
-                        panic!("malformed type");
+    fn check(&self) -> Result<Type, Report<'a>> {
+        enum Work<'a> {
+            // when we arrive here the top of the stack be of the form:
+            // `<arg0 type> ... <argn type>`
+            AppFuncCont {
+                func: &'a Ann<&'a str>,
+                func_sig: &'static FuncSig,
+                args: &'a Vec<Ann<SExpr<'a>>>,
+            },
+            Infer(&'a Ann<SExpr<'a>>),
+        }
+        let mut stack: Vec<Type> = Vec::new();
+        let mut queue: Vec<Work> = vec![Work::Infer(self)];
+        while let Some(work) = queue.pop() {
+            match work {
+                Work::AppFuncCont {
+                    func,
+                    func_sig,
+                    args,
+                } => {
+                    let arg_types = args
+                        .iter()
+                        .rev()
+                        .map(|e| {
+                            let typ = stack.pop().unwrap();
+                            (e, typ)
+                        })
+                        .rev()
+                        .enumerate();
+                    for (i, (arg_expr, arg_type)) in arg_types {
+                        let expected =
+                            func_sig
+                                .args
+                                .get(i)
+                                .or(func_sig.rest.as_ref())
+                                .ok_or_else(|| {
+                                    Report::build(ReportKind::Error, (), arg_expr.start)
+                                        .with_label(
+                                            Label::new(arg_expr.start..arg_expr.end)
+                                                .with_color(Color::Red)
+                                                .with_message(format!(
+                                                    "{} wasn't expecting any more arguments, but encountered one of type: {arg_type:?}", func.inner
+                                                )),
+                                        )
+                                        .with_message("Too many arguments")
+                                        .finish()
+                                })?;
+                        assert_type(arg_expr, *expected, arg_type)?;
                     }
-                    *output
-                });
-                res
+                    if let Some(missing_type) = func_sig.args.get(args.len()) {
+                        let app_end: usize = args.last().map(|e| e.end).unwrap_or(func.end);
+                        let report = Report::build(ReportKind::Error, (), app_end)
+                            .with_label(Label::new(app_end..app_end).with_message(format!(
+                                "{} expects another argument of type: {missing_type:?}",
+                                func.inner
+                            )))
+                            .with_message("Not enough arguments")
+                            .finish();
+                        return Err(report);
+                    }
+                    stack.push(func_sig.typ);
+                }
+                Work::Infer(e0) => match &e0.inner {
+                    SExpr::App { func, args } => {
+                        let func_sig = match get_func_sig(func.inner) {
+                            Some(x) => x,
+                            None => {
+                                let report = Report::build(ReportKind::Error, (), func.start)
+                                    .with_label(
+                                        Label::new(func.start..func.end)
+                                            .with_color(Color::Red)
+                                            .with_message("Unknown function"),
+                                    )
+                                    .with_message("Unknown function")
+                                    .finish();
+                                return Err(report);
+                            }
+                        };
+                        queue.push(Work::AppFuncCont {
+                            func,
+                            func_sig,
+                            args,
+                        });
+                        for arg in args {
+                            queue.push(Work::Infer(arg));
+                        }
+                    }
+                    SExpr::Value(x) => match x {
+                        Value::Ident(_) => stack.push(Type::String),
+                        Value::String(_) => stack.push(Type::String),
+                        Value::Nat(_) => stack.push(Type::Natural),
+                    },
+                },
             }
         }
+        Ok(stack.pop().unwrap())
     }
 
     fn postfix(&self) -> Vec<Eval<'a>> {
@@ -81,7 +234,30 @@ impl<'a> Ann<SExpr<'a>> {
         let mut expr_queue: Vec<&Ann<SExpr<'a>>> = vec![self];
 
         while let Some(filt) = expr_queue.pop() {
-            todo!()
+            match &filt.inner {
+                SExpr::App { func, args } => {
+                    let func = match func.inner {
+                        "table" => Eval::Table {
+                            arg_count: args.len(),
+                        },
+                        "schema" => Eval::Schema {
+                            arg_count: args.len(),
+                        },
+                        "within" => Eval::Within,
+                        "or" => Eval::Or,
+                        "and" => Eval::And,
+                        "-" => Eval::Difference,
+                        x => panic!("postfix: unknown function {x}"),
+                    };
+                    expr_queue.extend(args.iter().rev());
+                    eval_queue.push(func);
+                }
+                SExpr::Value(v) => match v {
+                    Value::Ident(x) => eval_queue.push(Eval::Literal(Literal::String(x))),
+                    Value::String(x) => eval_queue.push(Eval::Literal(Literal::String(x))),
+                    Value::Nat(x) => eval_queue.push(Eval::Literal(Literal::Natural(*x))),
+                },
+            }
         }
         eval_queue
     }
@@ -91,12 +267,11 @@ enum Constraint<'a> {
     IsType { term: &'a Ann<SExpr<'a>>, typ: Type },
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Type {
     Natural,
     String,
     Query,
-    Arr { lhs: Box<Type>, rhs: Box<Type> },
 }
 
 fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> {
@@ -133,60 +308,21 @@ fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> 
     }
 }
 
-fn parse2(input: &str) -> Ann<SExpr<'_>> {
+pub fn parse_res(input: &str) -> Result<Vec<Eval<'_>>, Report<'_>> {
     let parser = grammar::ExprParser::new();
-    match parser.parse(input) {
-        Ok(x) => x,
-        Err(e) => {
-            prettyParseError(e).eprint(Source::from(input)).unwrap();
-            std::process::exit(1)
-        }
-    }
+    let expr = parser.parse(input).map_err(|e| prettyParseError(e))?;
+    let typ = expr.check()?;
+    assert_type(&expr, Type::Query, typ)?;
+
+    let res = expr.postfix();
+    Ok(res)
 }
 
 pub fn parse(input: &str) -> Vec<Eval<'_>> {
-    todo!()
-    // let parser = grammar::ExprParser::new();
-    // parser.parse(input).unwrap().postfix()
-}
-
-impl<'a> Expr<'a> {
-    fn postfix(&self) -> Vec<Eval<'a>> {
-        let mut eval_queue = Vec::new();
-        let mut expr_queue: Vec<&Expr<'a>> = vec![self];
-
-        while let Some(filt) = expr_queue.pop() {
-            match filt {
-                Expr::Within {
-                    table_name,
-                    num_edges,
-                } => {
-                    todo!();
-                    // eval_queue.push(Eval::Within {
-                    //     table_name,
-                    //     num_edges: *num_edges,
-                    // });
-                }
-                Expr::Schema { schema_name } => todo!(), // eval_queue.push(Eval::Schema { schema_name }),
-                Expr::Difference { lhs, rhs } => {
-                    eval_queue.push(Eval::Difference);
-                    expr_queue.push(lhs);
-                    expr_queue.push(rhs);
-                }
-                Expr::Or { lhs, rhs } => {
-                    eval_queue.push(Eval::Or);
-                    expr_queue.push(lhs);
-                    expr_queue.push(rhs);
-                }
-                Expr::And { lhs, rhs } => {
-                    eval_queue.push(Eval::And);
-                    expr_queue.push(lhs);
-                    expr_queue.push(rhs);
-                }
-            }
-        }
-        eval_queue
-    }
+    parse_res(input).unwrap_or_else(|e| {
+        e.eprint(Source::from(input)).unwrap();
+        std::process::exit(1)
+    })
 }
 
 lalrpop_mod!(grammar);
@@ -194,18 +330,10 @@ lalrpop_mod!(grammar);
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[ignore]
-    #[test]
-    fn bonk() {
-        let parsed = grammar::ExprParser::new()
-            .parse("within 2 bonkers and (within 1 zonk or within 0 bonk)");
-        println!("{parsed:?}");
-        assert!(parsed.is_ok());
-    }
 
     #[test]
     fn zonk() {
-        let parsed = parse2("(within 2 (tables one two three))");
+        let parsed = parse("(within 2 (table one two three))");
         println!("{parsed:?}");
     }
 }

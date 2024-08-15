@@ -157,30 +157,30 @@ pub async fn get_foreign_keys<'a>(
 
 pub async fn get_matching_tables<'a>(
     t: &Transaction<'a>,
-    table_regex: &str,
+    tables: &[&str],
 ) -> Result<impl Stream<Item = Oid>, tokio_postgres::Error> {
     let sql: &str = concat!(
         "select c.oid ",
         "from pg_catalog.pg_class c ",
         "where c.relkind = any(array['r','p']) ",
-        "and c.relname = $1 ",
+        "and c.relname = any($1) ",
     );
-    let rows = t.query_raw(sql, &[&table_regex]).await?;
+    let rows = t.query_raw(sql, &[tables]).await?;
     let result = rows.map(|x| x.unwrap().get("oid"));
     Ok(result)
 }
 
 pub async fn get_matching_schemas<'a>(
     t: &Transaction<'a>,
-    schema_name: &str,
+    schema_names: &[&str],
 ) -> Result<impl Stream<Item = Oid>, tokio_postgres::Error> {
     let sql: &str = concat!(
         "select c.oid ",
         "from pg_catalog.pg_class c ",
         "where c.relkind = any(array['r','p']) ",
-        "and c.relnamespace in (select oid from pg_catalog.pg_namespace where nspname = $1) ",
+        "and c.relnamespace in (select oid from pg_catalog.pg_namespace where nspname = any($1)) ",
     );
-    let rows = t.query_raw(sql, &[&schema_name]).await?;
+    let rows = t.query_raw(sql, &[schema_names]).await?;
     let result = rows.map(|x| x.unwrap().get("oid"));
     Ok(result)
 }

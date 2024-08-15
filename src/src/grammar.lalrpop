@@ -8,8 +8,9 @@ pub Expr: Ann<SExpr<'input>> = {
 }
 
 RawExpr: SExpr<'input> = {
-    "(" <func: Expr> <args: Expr*> ")" => SExpr::App { func: Box::new(func), args },
+    "(" <func: Ann<Ident>> <args: Expr*> ")" => SExpr::App { func, args },
     <x: Ident> => SExpr::Value(Value::Ident(x)),
+    <x: String> => SExpr::Value(Value::Ident(x)),
     <x: Nat> => SExpr::Value(Value::Nat(x)),
 };
 
@@ -20,5 +21,5 @@ Ann<T>: Ann<T> = {
 };
 
 Nat: u32 = <s:r"[0-9]+"> => u32::from_str(s).unwrap();
-Ident: &'input str = <s:r"[a-zA-Z_-][[:alnum:]]*"> => s;
-String: &'input str = <s:r#""[^"]*""#> => s;
+Ident: &'input str = <s:r"[a-zA-Z_-][[:alnum:]_-]*"> => s;
+String: &'input str = <s:r#""((?:[^"\\]|(?:\\).)*)""#> => s;

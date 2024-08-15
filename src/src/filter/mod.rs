@@ -19,37 +19,51 @@ pub async fn apply<'a, 'b>(
         while let Some(eval_elem) = interpret_queue.pop() {
             match eval_elem {
                 Eval::Within => {
-                    let table_name = stack.pop().unwrap().string();
                     let num_edges = stack.pop().unwrap().natural();
+                    let oids = stack.pop().unwrap().oids();
                     let mut visible = BTreeSet::new();
-                    let oids = get_matching_tables(transaction, table_name).await?;
-                    let mut oids = std::pin::pin!(oids);
-                    while let Some(oid) = oids.next().await {
+                    for oid in oids {
                         bfs(&mut visible, dont_follow, fks, rfks, num_edges, oid);
                     }
                     stack.push(Value::Oids(visible));
                 }
-                Eval::Schema => {
-                    let schema_name = stack.pop().unwrap().string();
-                    let oids = get_matching_schemas(transaction, schema_name)
+                Eval::Table { arg_count } => {
+                    let tables: Vec<&'b str> = stack
+                        .split_off(stack.len() - arg_count)
+                        .into_iter()
+                        .map(|x| x.string())
+                        .collect();
+                    let oids = get_matching_tables(transaction, &tables)
+                        .await?
+                        .collect()
+                        .await;
+                    stack.push(Value::Oids(oids));
+                }
+                Eval::Schema { arg_count } => {
+                    let schemas: Vec<&'b str> = stack
+                        .split_off(stack.len() - arg_count)
+                        .into_iter()
+                        .map(|x| x.string())
+                        .collect();
+                    let oids = get_matching_schemas(transaction, &schemas)
                         .await?
                         .collect()
                         .await;
                     stack.push(Value::Oids(oids));
                 }
                 Eval::Difference => {
-                    let y = stack.pop().unwrap().oids();
                     let x = stack.pop().unwrap().oids();
+                    let y = stack.pop().unwrap().oids();
                     stack.push(Value::Oids(&x - &y));
                 }
                 Eval::And => {
-                    let y = stack.pop().unwrap().oids();
                     let x = stack.pop().unwrap().oids();
+                    let y = stack.pop().unwrap().oids();
                     stack.push(Value::Oids(x.bitand(&y)));
                 }
                 Eval::Or => {
-                    let y = stack.pop().unwrap().oids();
                     let x = stack.pop().unwrap().oids();
+                    let y = stack.pop().unwrap().oids();
                     stack.push(Value::Oids(x.bitor(&y)));
                 }
                 Eval::Literal(x) => match x {
@@ -100,7 +114,8 @@ pub enum Eval<'a> {
     Or,
     Difference,
     Within,
-    Schema,
+    Table { arg_count: usize },
+    Schema { arg_count: usize },
     Literal(Literal<'a>),
 }
 
