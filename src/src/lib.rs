@@ -310,7 +310,7 @@ pub fn write_dot<W: io::Write>(
     edge_labels: bool,
 ) -> io::Result<()> {
     writeln!(f, "digraph g {{")?;
-    writeln!(f, "graph [nodesep=\"2.0\"]")?;
+    writeln!(f, "graph [nodesep=\"3.0\" ranksep=\"1.5\"]")?;
     writeln!(
         f,
         "node [fontcolor=\"#000000\" fontname=\"Helvetica,sans-serif\"]"
