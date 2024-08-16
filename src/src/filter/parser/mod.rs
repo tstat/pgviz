@@ -79,20 +79,26 @@ fn get_func_sig(name: &str) -> Option<&'static FuncSig> {
     }
 }
 
-fn mismatch(expr: &Ann<SExpr<'_>>, expected: Type, actual: Type) -> Report<'static> {
-    Report::build(ReportKind::Error, (), expr.start)
-        .with_label(
-            Label::new(expr.start..expr.end)
-                .with_color(Color::Red)
-                .with_message(format!(
-                    "Expected something of type: {expected:?}, but this has type: {actual:?}"
-                )),
-        )
-        .with_message("Type mismatch")
-        .finish()
+fn mismatch(expr: &Ann<SExpr<'_>>, expected: Type, actual: Type) -> Box<Report<'static>> {
+    Box::new(
+        Report::build(ReportKind::Error, (), expr.start)
+            .with_label(
+                Label::new(expr.start..expr.end)
+                    .with_color(Color::Red)
+                    .with_message(format!(
+                        "Expected something of type: {expected:?}, but this has type: {actual:?}"
+                    )),
+            )
+            .with_message("Type mismatch")
+            .finish(),
+    )
 }
 
-fn assert_type(expr: &Ann<SExpr<'_>>, expected: Type, actual: Type) -> Result<(), Report<'static>> {
+fn assert_type(
+    expr: &Ann<SExpr<'_>>,
+    expected: Type,
+    actual: Type,
+) -> Result<(), Box<Report<'static>>> {
     if expected != actual {
         return Err(mismatch(expr, expected, actual));
     }
@@ -100,7 +106,7 @@ fn assert_type(expr: &Ann<SExpr<'_>>, expected: Type, actual: Type) -> Result<()
 }
 
 impl<'a> Ann<SExpr<'a>> {
-    fn check(&self) -> Result<Type, Report<'a>> {
+    fn check(&self) -> Result<Type, Box<Report<'a>>> {
         enum Work<'a> {
             // when we arrive here the top of the stack be of the form:
             // `<arg0 type> ... <argn type>`
@@ -158,7 +164,7 @@ impl<'a> Ann<SExpr<'a>> {
                             )))
                             .with_message("Not enough arguments")
                             .finish();
-                        return Err(report);
+                        return Err(Box::new(report));
                     }
                     stack.push(func_sig.typ);
                 }
@@ -175,7 +181,7 @@ impl<'a> Ann<SExpr<'a>> {
                                     )
                                     .with_message("Unknown function")
                                     .finish();
-                                return Err(report);
+                                return Err(Box::new(report));
                             }
                         };
                         queue.push(Work::AppFuncCont {
@@ -273,7 +279,7 @@ fn pretty_parse_error<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a
     }
 }
 
-pub fn parse_res(input: &str) -> Result<Vec<Eval<'_>>, Report<'_>> {
+pub fn parse_res(input: &str) -> Result<Vec<Eval<'_>>, Box<Report<'_>>> {
     let parser = grammar::ExprParser::new();
     let expr = parser.parse(input).map_err(|e| pretty_parse_error(e))?;
     let typ = expr.check()?;
