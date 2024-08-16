@@ -61,6 +61,54 @@ pub struct Db {
     pub inner: BTreeMap<Oid, Table>,
 }
 
+#[derive(Debug)]
+struct Graph {
+    nodes: BTreeSet<Oid>,
+    subgraphs: Vec<Subgraph>,
+}
+
+struct GraphDfs<'a> {
+    current: std::collections::btree_set::Iter<'a, Oid>,
+    stack: Vec<std::slice::Iter<'a, Subgraph>>,
+}
+
+impl<'a> Iterator for GraphDfs<'a> {
+    type Item = &'a u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.current.next() {
+                Some(x) => break Some(x),
+                None => match self.stack.pop() {
+                    Some(mut subs) => {
+                        if let Some(sub) = subs.next() {
+                            self.stack.push(subs);
+                            self.stack.push(sub.graph.subgraphs.iter());
+                            self.current = sub.graph.nodes.iter();
+                        }
+                    }
+                    None => break None,
+                },
+            }
+        }
+    }
+}
+
+impl Graph {
+    fn nodes_recursive(&self) -> GraphDfs<'_> {
+        GraphDfs {
+            current: self.nodes.iter(),
+            stack: vec![self.subgraphs.iter()],
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Subgraph {
+    label: String,
+    graph: Graph,
+}
+
 pub async fn write_graph<'a, W: io::Write>(
     conn_str: &str,
     dont_follow: Option<Vec<filter::Eval<'a>>>,
@@ -113,7 +161,11 @@ pub async fn write_graph<'a, W: io::Write>(
         &rfk_map,
     )
     .await?;
-    for oid in &visible {
+    let visible = Graph {
+        nodes: visible,
+        subgraphs: Vec::new(),
+    };
+    for oid in visible.nodes_recursive() {
         if let Some(tbl) = tables.get_mut(oid) {
             tbl.populate_table(&transaction).await?;
         }
@@ -302,11 +354,11 @@ impl Table {
     }
 }
 
-pub fn write_dot<W: io::Write>(
+fn write_dot<W: io::Write>(
     f: &mut W,
     tables: &BTreeMap<Oid, Table>,
     fks: &Vec<ForeignKeyConstraint>,
-    visible: &BTreeSet<Oid>,
+    visible: &Graph,
     edge_labels: bool,
 ) -> io::Result<()> {
     writeln!(f, "digraph g {{")?;
@@ -319,11 +371,12 @@ pub fn write_dot<W: io::Write>(
         f,
         "edge [fontname=\"Helvetica,sans-serif\" fontsize=10.0 labeldistance=2.0]"
     )?;
-    for oid in visible {
+    for oid in &visible.nodes {
         if let Some(tbl) = tables.get(oid) {
             tbl.write_dot(f)?;
         }
     }
+    let visible: BTreeSet<Oid> = visible.nodes_recursive().copied().collect();
     for fk in fks {
         if visible.contains(&fk.source) && visible.contains(&fk.target) {
             match (fk.source_cols.first(), fk.target_cols.first()) {
