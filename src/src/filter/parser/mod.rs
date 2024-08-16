@@ -1,37 +1,6 @@
-use std::ops::Range;
-
 use super::{Eval, Literal};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use lalrpop_util::{lalrpop_mod, lexer::Token, ParseError};
-
-#[derive(Debug)]
-pub enum Graph<'a> {
-    TopLevel { inner: Vec<Expr<'a>> },
-    Subgraph { name: &'a str, inner: Vec<Expr<'a>> },
-}
-
-#[derive(Debug)]
-pub enum Expr<'a> {
-    And {
-        lhs: Box<Expr<'a>>,
-        rhs: Box<Expr<'a>>,
-    },
-    Or {
-        lhs: Box<Expr<'a>>,
-        rhs: Box<Expr<'a>>,
-    },
-    Difference {
-        lhs: Box<Expr<'a>>,
-        rhs: Box<Expr<'a>>,
-    },
-    Within {
-        table_name: &'a str,
-        num_edges: u32,
-    },
-    Schema {
-        schema_name: &'a str,
-    },
-}
 
 #[derive(Debug)]
 pub struct Ann<T> {
@@ -263,10 +232,6 @@ impl<'a> Ann<SExpr<'a>> {
     }
 }
 
-enum Constraint<'a> {
-    IsType { term: &'a Ann<SExpr<'a>>, typ: Type },
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Type {
     Natural,
@@ -274,7 +239,7 @@ enum Type {
     Query,
 }
 
-fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> {
+fn pretty_parse_error<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> {
     match e {
         ParseError::InvalidToken { location } => Report::build(ReportKind::Error, (), location)
             .with_message("Invalid Token")
@@ -310,7 +275,7 @@ fn prettyParseError<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> 
 
 pub fn parse_res(input: &str) -> Result<Vec<Eval<'_>>, Report<'_>> {
     let parser = grammar::ExprParser::new();
-    let expr = parser.parse(input).map_err(|e| prettyParseError(e))?;
+    let expr = parser.parse(input).map_err(|e| pretty_parse_error(e))?;
     let typ = expr.check()?;
     assert_type(&expr, Type::Query, typ)?;
 
