@@ -61,6 +61,18 @@ static DIFF_SIG: FuncSig = FuncSig {
     typ: Type::Query,
 };
 
+static SUBGRAPH_SIG: FuncSig = FuncSig {
+    args: &[Type::String, Type::Graph],
+    rest: None,
+    typ: Type::Subgraph,
+};
+
+static GRAPH_SIG: FuncSig = FuncSig {
+    args: &[Type::Query],
+    rest: Some(Type::Subgraph),
+    typ: Type::Graph,
+};
+
 struct FuncSig {
     args: &'static [Type],
     rest: Option<Type>,
@@ -75,6 +87,8 @@ fn get_func_sig(name: &str) -> Option<&'static FuncSig> {
         "or" => Some(&OR_SIG),
         "and" => Some(&AND_SIG),
         "-" => Some(&DIFF_SIG),
+        "graph" => Some(&GRAPH_SIG),
+        "subgraph" => Some(&SUBGRAPH_SIG),
         _ => None,
     }
 }
@@ -222,6 +236,10 @@ impl<'a> Ann<SExpr<'a>> {
                         "or" => Eval::Or,
                         "and" => Eval::And,
                         "-" => Eval::Difference,
+                        "graph" => Eval::Graph {
+                            subgraph_count: args.len() - 1,
+                        },
+                        "subgraph" => Eval::Subgraph,
                         x => panic!("postfix: unknown function {x}"),
                     };
                     expr_queue.extend(args.iter().rev());
@@ -239,10 +257,12 @@ impl<'a> Ann<SExpr<'a>> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum Type {
+pub enum Type {
     Natural,
     String,
     Query,
+    Subgraph,
+    Graph,
 }
 
 fn pretty_parse_error<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a> {
@@ -279,18 +299,18 @@ fn pretty_parse_error<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a
     }
 }
 
-pub fn parse_res(input: &str) -> Result<Vec<Eval<'_>>, Box<Report<'_>>> {
+pub fn parse_res(input: &str, expected: Type) -> Result<Vec<Eval<'_>>, Box<Report<'_>>> {
     let parser = grammar::ExprParser::new();
     let expr = parser.parse(input).map_err(|e| pretty_parse_error(e))?;
     let typ = expr.check()?;
-    assert_type(&expr, Type::Query, typ)?;
+    assert_type(&expr, expected, typ)?;
 
     let res = expr.postfix();
     Ok(res)
 }
 
-pub fn parse(input: &str) -> Vec<Eval<'_>> {
-    parse_res(input).unwrap_or_else(|e| {
+pub fn parse(input: &str, expected: Type) -> Vec<Eval<'_>> {
+    parse_res(input, expected).unwrap_or_else(|e| {
         e.eprint(Source::from(input)).unwrap();
         std::process::exit(1)
     })
@@ -304,7 +324,7 @@ mod tests {
 
     #[test]
     fn zonk() {
-        let parsed = parse("(within 2 (table one two three))");
+        let parsed = parse("(within 2 (table one two three))", Type::Query);
         println!("{parsed:?}");
     }
 }

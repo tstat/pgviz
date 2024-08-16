@@ -5,14 +5,54 @@ use std::{
     ops::{BitAnd, BitOr},
 };
 
-pub async fn apply<'a, 'b>(
+pub(super) async fn apply<'a, 'b>(
+    transaction: &Transaction<'a>,
+    _tables: &BTreeMap<Oid, Table>,
+    interpret_queue: Vec<Eval<'b>>,
+    dont_follow: &Option<BTreeSet<Oid>>,
+    fks: &BTreeMap<Oid, Vec<Oid>>,
+    rfks: &BTreeMap<Oid, Vec<Oid>>,
+) -> Result<Graph, tokio_postgres::Error> {
+    interpret(
+        transaction,
+        _tables,
+        interpret_queue,
+        dont_follow,
+        fks,
+        rfks,
+    )
+    .await
+    .map(|x| x.graph())
+}
+
+pub(super) async fn run_query<'a, 'b>(
+    transaction: &Transaction<'a>,
+    _tables: &BTreeMap<Oid, Table>,
+    interpret_queue: Vec<Eval<'b>>,
+    dont_follow: &Option<BTreeSet<Oid>>,
+    fks: &BTreeMap<Oid, Vec<Oid>>,
+    rfks: &BTreeMap<Oid, Vec<Oid>>,
+) -> Result<BTreeSet<u32>, tokio_postgres::Error> {
+    interpret(
+        transaction,
+        _tables,
+        interpret_queue,
+        dont_follow,
+        fks,
+        rfks,
+    )
+    .await
+    .map(|x| x.oids())
+}
+
+async fn interpret<'a, 'b>(
     transaction: &Transaction<'a>,
     _tables: &BTreeMap<Oid, Table>,
     mut interpret_queue: Vec<Eval<'b>>,
     dont_follow: &Option<BTreeSet<Oid>>,
     fks: &BTreeMap<Oid, Vec<Oid>>,
     rfks: &BTreeMap<Oid, Vec<Oid>>,
-) -> Result<BTreeSet<Oid>, tokio_postgres::Error> {
+) -> Result<Value<'b>, tokio_postgres::Error> {
     let visible = {
         let mut stack: Vec<Value<'b>> = Vec::new();
 
@@ -26,6 +66,23 @@ pub async fn apply<'a, 'b>(
                         bfs(&mut visible, dont_follow, fks, rfks, num_edges, oid);
                     }
                     stack.push(Value::Oids(visible));
+                }
+                Eval::Subgraph => {
+                    let label = stack.pop().unwrap().string();
+                    let graph: Graph = stack.pop().unwrap().graph();
+                    stack.push(Value::Subgraph(Subgraph {
+                        label: label.to_string(),
+                        graph,
+                    }));
+                }
+                Eval::Graph { subgraph_count } => {
+                    let nodes = stack.pop().unwrap().oids();
+                    let subgraphs: Vec<Subgraph> = stack
+                        .split_off(stack.len() - subgraph_count)
+                        .into_iter()
+                        .map(|x| x.subgraph())
+                        .collect();
+                    stack.push(Value::Graph(Graph { nodes, subgraphs }));
                 }
                 Eval::Table { arg_count } => {
                     let tables: Vec<&'b str> = stack
@@ -72,17 +129,19 @@ pub async fn apply<'a, 'b>(
                 },
             }
         }
-        stack.pop().unwrap().oids()
+        stack.pop().unwrap()
     };
 
     Ok(visible)
 }
 
 #[derive(Debug)]
-pub enum Value<'a> {
+enum Value<'a> {
     String(&'a str),
     Natural(u32),
     Oids(BTreeSet<u32>),
+    Subgraph(Subgraph),
+    Graph(Graph),
 }
 
 impl<'a> Value<'a> {
@@ -106,6 +165,20 @@ impl<'a> Value<'a> {
             x => panic!("Expected a set of oids but got: {x:?}"),
         }
     }
+
+    fn subgraph(self) -> Subgraph {
+        match self {
+            Value::Subgraph(x) => x,
+            x => panic!("Expected a subgraph but got: {x:?}"),
+        }
+    }
+
+    fn graph(self) -> Graph {
+        match self {
+            Value::Graph(x) => x,
+            x => panic!("Expected a graph but got: {x:?}"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -116,6 +189,8 @@ pub enum Eval<'a> {
     Within,
     Table { arg_count: usize },
     Schema { arg_count: usize },
+    Subgraph,
+    Graph { subgraph_count: usize },
     Literal(Literal<'a>),
 }
 

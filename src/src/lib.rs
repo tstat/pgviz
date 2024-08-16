@@ -70,21 +70,35 @@ struct Graph {
 struct GraphDfs<'a> {
     current: std::collections::btree_set::Iter<'a, Oid>,
     stack: Vec<std::slice::Iter<'a, Subgraph>>,
+    depth: u32,
+}
+
+enum GraphElem<'a> {
+    Node(u32),
+    SubgraphEnter(&'a str),
+    SubgraphExit,
 }
 
 impl<'a> Iterator for GraphDfs<'a> {
-    type Item = &'a u32;
+    type Item = GraphElem<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.current.next() {
-                Some(x) => break Some(x),
+                Some(x) => break Some(GraphElem::Node(*x)),
                 None => match self.stack.pop() {
                     Some(mut subs) => {
                         if let Some(sub) = subs.next() {
                             self.stack.push(subs);
                             self.stack.push(sub.graph.subgraphs.iter());
                             self.current = sub.graph.nodes.iter();
+                            self.depth += 1;
+                            break Some(GraphElem::SubgraphEnter(&sub.label));
+                        } else {
+                            if self.depth > 0 {
+                                self.depth -= 1;
+                                break Some(GraphElem::SubgraphExit);
+                            }
                         }
                     }
                     None => break None,
@@ -95,11 +109,19 @@ impl<'a> Iterator for GraphDfs<'a> {
 }
 
 impl Graph {
-    fn nodes_recursive(&self) -> GraphDfs<'_> {
+    fn elems(&self) -> GraphDfs<'_> {
         GraphDfs {
             current: self.nodes.iter(),
             stack: vec![self.subgraphs.iter()],
+            depth: 0,
         }
+    }
+
+    fn nodes_recursive(&self) -> impl Iterator<Item = u32> + '_ {
+        self.elems().filter_map(|e| match e {
+            GraphElem::Node(x) => Some(x),
+            _ => None,
+        })
     }
 }
 
@@ -148,9 +170,9 @@ pub async fn write_graph<'a, W: io::Write>(
     let mut tables = get_tables(&transaction).await?;
     let dont_follow: Option<BTreeSet<Oid>> = match dont_follow {
         None => None,
-        Some(dont_follow) => {
-            Some(filter::apply(&transaction, &tables, dont_follow, &None, &fk_map, &rfk_map).await?)
-        }
+        Some(dont_follow) => Some(
+            filter::run_query(&transaction, &tables, dont_follow, &None, &fk_map, &rfk_map).await?,
+        ),
     };
     let visible = filter::apply(
         &transaction,
@@ -161,12 +183,8 @@ pub async fn write_graph<'a, W: io::Write>(
         &rfk_map,
     )
     .await?;
-    let visible = Graph {
-        nodes: visible,
-        subgraphs: Vec::new(),
-    };
     for oid in visible.nodes_recursive() {
-        if let Some(tbl) = tables.get_mut(oid) {
+        if let Some(tbl) = tables.get_mut(&oid) {
             tbl.populate_table(&transaction).await?;
         }
     }
@@ -363,6 +381,7 @@ fn write_dot<W: io::Write>(
 ) -> io::Result<()> {
     writeln!(f, "digraph g {{")?;
     writeln!(f, "graph [nodesep=\"3.0\" ranksep=\"1.5\"]")?;
+    writeln!(f, "fontname=\"Helvetica,sans-serif\"")?;
     writeln!(
         f,
         "node [fontcolor=\"#000000\" fontname=\"Helvetica,sans-serif\"]"
@@ -371,12 +390,30 @@ fn write_dot<W: io::Write>(
         f,
         "edge [fontname=\"Helvetica,sans-serif\" fontsize=10.0 labeldistance=2.0]"
     )?;
-    for oid in &visible.nodes {
-        if let Some(tbl) = tables.get(oid) {
-            tbl.write_dot(f)?;
+
+    // time to write all node descriptions, each in their subgraph. So, we do a
+    // dfs of the subgraphs and print as we go.
+    let mut cluster_string: String = String::new();
+    for elem in visible.elems() {
+        match elem {
+            GraphElem::Node(oid) => {
+                if let Some(tbl) = tables.get(&oid) {
+                    tbl.write_dot(f)?;
+                }
+            }
+            GraphElem::SubgraphEnter(lbl) => {
+                cluster_string.push_str(lbl);
+                cluster_string.retain(|c| !c.is_whitespace());
+                writeln!(f, "subgraph cluster_{cluster_string} {{")?;
+                cluster_string.clear();
+                writeln!(f, "label=\"{lbl}\";")?;
+            }
+            GraphElem::SubgraphExit => {
+                writeln!(f, "}}")?;
+            }
         }
     }
-    let visible: BTreeSet<Oid> = visible.nodes_recursive().copied().collect();
+    let visible: BTreeSet<Oid> = visible.nodes_recursive().collect();
     for fk in fks {
         if visible.contains(&fk.source) && visible.contains(&fk.target) {
             match (fk.source_cols.first(), fk.target_cols.first()) {

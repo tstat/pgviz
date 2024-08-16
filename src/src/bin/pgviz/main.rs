@@ -5,7 +5,10 @@ use std::{
 };
 
 use clap::Parser;
-use pgviz::args::{Args, Format};
+use pgviz::{
+    args::{Args, Format},
+    filter::parser::Type,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), tokio_postgres::Error> {
@@ -21,8 +24,8 @@ async fn main() -> Result<(), tokio_postgres::Error> {
     let dont_follow_filter = args
         .dont_follow
         .as_ref()
-        .map(|x| pgviz::filter::parser::parse(x));
-    let filter = pgviz::filter::parser::parse(&input_str);
+        .map(|x| pgviz::filter::parser::parse(x, Type::Query));
+    let filter = pgviz::filter::parser::parse(&input_str, Type::Graph);
     // Take the format as given, or from the output file extension, or default
     // to Dot
     let format = args.format.unwrap_or_else(|| {
