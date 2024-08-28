@@ -404,7 +404,7 @@ fn write_dot<W: io::Write>(
             }
             GraphElem::SubgraphEnter(lbl) => {
                 cluster_string.push_str(lbl);
-                cluster_string.retain(|c| !c.is_whitespace());
+                cluster_string.retain(|c| c.is_ascii_alphanumeric());
                 writeln!(f, "subgraph cluster_{cluster_string} {{")?;
                 cluster_string.clear();
                 writeln!(f, "label=\"{lbl}\";")?;
