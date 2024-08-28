@@ -382,6 +382,8 @@ fn write_dot<W: io::Write>(
     writeln!(f, "digraph g {{")?;
     writeln!(f, "graph [nodesep=\"3.0\" ranksep=\"1.5\"]")?;
     writeln!(f, "fontname=\"Helvetica,sans-serif\"")?;
+    writeln!(f, "fontcolor=\"#000000\"")?;
+    writeln!(f, "fontsize=18.0")?;
     writeln!(
         f,
         "node [fontcolor=\"#000000\" fontname=\"Helvetica,sans-serif\"]"
@@ -403,7 +405,7 @@ fn write_dot<W: io::Write>(
             }
             GraphElem::SubgraphEnter(lbl) => {
                 cluster_string.push_str(lbl);
-                cluster_string.retain(|c| !c.is_whitespace());
+                cluster_string.retain(|c| c.is_ascii_alphanumeric());
                 writeln!(f, "subgraph cluster_{cluster_string} {{")?;
                 cluster_string.clear();
                 writeln!(f, "label=\"{lbl}\";")?;

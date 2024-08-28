@@ -1,6 +1,7 @@
 use super::{Eval, Literal};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use lalrpop_util::{lalrpop_mod, lexer::Token, ParseError};
+use regex::Regex;
 
 #[derive(Debug)]
 pub struct Ann<T> {
@@ -26,13 +27,13 @@ pub enum Value<'a> {
 }
 
 static SCHEMA_SIG: FuncSig = FuncSig {
-    args: &[Type::String],
+    args: &[],
     rest: Some(Type::String),
     typ: Type::Query,
 };
 
 static TABLE_SIG: FuncSig = FuncSig {
-    args: &[Type::String],
+    args: &[],
     rest: Some(Type::String),
     typ: Type::Query,
 };
@@ -300,8 +301,11 @@ fn pretty_parse_error<'a>(e: ParseError<usize, Token<'a>, &'a str>) -> Report<'a
 }
 
 pub fn parse_res(input: &str, expected: Type) -> Result<Vec<Eval<'_>>, Box<Report<'_>>> {
+    let str_regex = Regex::new(r#""((?:[^"\\]|(?:\\).)*)""#).unwrap();
     let parser = grammar::ExprParser::new();
-    let expr = parser.parse(input).map_err(|e| pretty_parse_error(e))?;
+    let expr = parser
+        .parse(&str_regex, input)
+        .map_err(|e| pretty_parse_error(e))?;
     let typ = expr.check()?;
     assert_type(&expr, expected, typ)?;
 

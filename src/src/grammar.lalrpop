@@ -1,7 +1,8 @@
 use std::str::FromStr;
 use super::{Ann, SExpr, Value};
+use regex::Regex;
 
-grammar;
+grammar(str_regex: &Regex);
 
 pub Expr: Ann<SExpr<'input>> = {
     <x: Ann<RawExpr>> => x,
@@ -22,4 +23,7 @@ Ann<T>: Ann<T> = {
 
 Nat: u32 = <s:r"[0-9]+"> => u32::from_str(s).unwrap();
 Ident: &'input str = <s:r"[a-zA-Z_-][[:alnum:]_-]*"> => s;
-String: &'input str = <s:r#""((?:[^"\\]|(?:\\).)*)""#> => s;
+String: &'input str = <s:r#""((?:[^"\\]|(?:\\).)*)""#> => {
+    let captures = str_regex.captures(s).unwrap();
+    captures.get(1).unwrap().as_str()
+};

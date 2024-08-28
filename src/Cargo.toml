@@ -15,6 +15,7 @@ clap = { version = "=4.4.18", features = ["derive"] }
 futures = "0.3.30"
 lalrpop-util = { version = "0.20.2", features = ["lexer"] }
 postgres-types = "0.2.6"
+regex = "1.10.6"
 tokio = { version = "1.37.0", features = ["net", "time", "process", "macros", "signal", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7.10", features = ["array-impls"] }
 

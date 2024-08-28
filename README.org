@@ -8,7 +8,7 @@ tables that should be included in the diagram.
 Using the [[https://github.com/devrimgunduz/pagila][Pagila]] schema as an example:
 
 #+begin_src
-pgviz --out pagila.svg "within 2 film"
+pgviz --out pagila.svg "(graph (within 2 (table film)))"
 #+end_src
 
 produces
@@ -17,23 +17,24 @@ produces
 
 ** Query language
 
-The query language includes:
+The query language uses s-expressions and includes the following functions:
 
-*** Terminals
-
-- ~within <n: integer> <t: table name>~ :: includes all tables within ~n~
-  edges of ~t~
-- ~schema <s: schema name>~ :: includes tables in the schema whose name is equal
-  to ~s~
-- ~table <t: table name>~ :: includes tables whose name is equal to ~t~
-- ~tables <ts: comma-separated list of table names>~ :: includes tables whose
-  name is equal to an element of ~ts~
-
-*** Non-terminals
-
-- ~<lhs: query> and <rhs: query>~ :: include tables that match ~lhs~ and ~rhs~
-- ~<lhs: query> or <rhs: query>~ :: include tables that match ~lhs~ or ~rhs~
-- ~<lhs: query> - <rhs: query>~ :: include tables that match ~lhs~, but do not match ~rhs~
+- ~graph <q: query> <s0: subgraph> ...~ :: produces a ~graph~ with top level nodes
+  matching ~q~ and any number of included subgraphs
+- ~subgraph <label: string> <g: graph> ...~ :: produces a ~subgraph~ with the
+  provided label that contains the provided graph
+- ~within <n: integer> <q: query>~ :: produces a ~query~ that includes all
+  tables within ~n~ edges of tables matching ~q~
+- ~schema <s: schema name> ...~ :: produces a ~query~ that includes all tables
+  contained by the provided schemas
+- ~table <t: table name> ...~ :: procudes a ~query~ that includes tables whose
+  name is equal to any of the provided table names
+- ~and <q0: query> <q1: query> ...~ :: produces a ~query~ that include tables
+  that match all of the provided queries
+- ~or <q0: query> <q1: query> ...~ :: produces a ~query~ that includes tables
+  that match any of the provided queries
+- ~- <lhs: query> <rhs: query>~ :: produces a ~query~ that includes tables that
+  match ~lhs~, but do not match ~rhs~
 
 ** Colors
 
