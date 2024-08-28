@@ -27,13 +27,13 @@ pub enum Value<'a> {
 }
 
 static SCHEMA_SIG: FuncSig = FuncSig {
-    args: &[Type::String],
+    args: &[],
     rest: Some(Type::String),
     typ: Type::Query,
 };
 
 static TABLE_SIG: FuncSig = FuncSig {
-    args: &[Type::String],
+    args: &[],
     rest: Some(Type::String),
     typ: Type::Query,
 };
