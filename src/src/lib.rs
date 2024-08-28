@@ -383,6 +383,7 @@ fn write_dot<W: io::Write>(
     writeln!(f, "graph [nodesep=\"3.0\" ranksep=\"1.5\"]")?;
     writeln!(f, "fontname=\"Helvetica,sans-serif\"")?;
     writeln!(f, "fontcolor=\"#000000\"")?;
+    writeln!(f, "fontsize=18.0")?;
     writeln!(
         f,
         "node [fontcolor=\"#000000\" fontname=\"Helvetica,sans-serif\"]"
