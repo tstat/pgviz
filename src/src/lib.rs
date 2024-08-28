@@ -61,6 +61,76 @@ pub struct Db {
     pub inner: BTreeMap<Oid, Table>,
 }
 
+#[derive(Debug)]
+struct Graph {
+    nodes: BTreeSet<Oid>,
+    subgraphs: Vec<Subgraph>,
+}
+
+struct GraphDfs<'a> {
+    current: std::collections::btree_set::Iter<'a, Oid>,
+    stack: Vec<std::slice::Iter<'a, Subgraph>>,
+    depth: u32,
+}
+
+enum GraphElem<'a> {
+    Node(u32),
+    SubgraphEnter(&'a str),
+    SubgraphExit,
+}
+
+impl<'a> Iterator for GraphDfs<'a> {
+    type Item = GraphElem<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.current.next() {
+                Some(x) => break Some(GraphElem::Node(*x)),
+                None => match self.stack.pop() {
+                    Some(mut subs) => {
+                        if let Some(sub) = subs.next() {
+                            self.stack.push(subs);
+                            self.stack.push(sub.graph.subgraphs.iter());
+                            self.current = sub.graph.nodes.iter();
+                            self.depth += 1;
+                            break Some(GraphElem::SubgraphEnter(&sub.label));
+                        } else {
+                            if self.depth > 0 {
+                                self.depth -= 1;
+                                break Some(GraphElem::SubgraphExit);
+                            }
+                        }
+                    }
+                    None => break None,
+                },
+            }
+        }
+    }
+}
+
+impl Graph {
+    fn elems(&self) -> GraphDfs<'_> {
+        GraphDfs {
+            current: self.nodes.iter(),
+            stack: vec![self.subgraphs.iter()],
+            depth: 0,
+        }
+    }
+
+    fn nodes_recursive(&self) -> impl Iterator<Item = u32> + '_ {
+        self.elems().filter_map(|e| match e {
+            GraphElem::Node(x) => Some(x),
+            _ => None,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct Subgraph {
+    label: String,
+    graph: Graph,
+}
+
 pub async fn write_graph<'a, W: io::Write>(
     conn_str: &str,
     dont_follow: Option<Vec<filter::Eval<'a>>>,
@@ -100,9 +170,9 @@ pub async fn write_graph<'a, W: io::Write>(
     let mut tables = get_tables(&transaction).await?;
     let dont_follow: Option<BTreeSet<Oid>> = match dont_follow {
         None => None,
-        Some(dont_follow) => {
-            Some(filter::apply(&transaction, &tables, dont_follow, &None, &fk_map, &rfk_map).await?)
-        }
+        Some(dont_follow) => Some(
+            filter::run_query(&transaction, &tables, dont_follow, &None, &fk_map, &rfk_map).await?,
+        ),
     };
     let visible = filter::apply(
         &transaction,
@@ -113,8 +183,8 @@ pub async fn write_graph<'a, W: io::Write>(
         &rfk_map,
     )
     .await?;
-    for oid in &visible {
-        if let Some(tbl) = tables.get_mut(oid) {
+    for oid in visible.nodes_recursive() {
+        if let Some(tbl) = tables.get_mut(&oid) {
             tbl.populate_table(&transaction).await?;
         }
     }
@@ -157,30 +227,30 @@ pub async fn get_foreign_keys<'a>(
 
 pub async fn get_matching_tables<'a>(
     t: &Transaction<'a>,
-    table_regex: &str,
+    tables: &[&str],
 ) -> Result<impl Stream<Item = Oid>, tokio_postgres::Error> {
     let sql: &str = concat!(
         "select c.oid ",
         "from pg_catalog.pg_class c ",
         "where c.relkind = any(array['r','p']) ",
-        "and c.relname = $1 ",
+        "and c.relname = any($1) ",
     );
-    let rows = t.query_raw(sql, &[&table_regex]).await?;
+    let rows = t.query_raw(sql, &[tables]).await?;
     let result = rows.map(|x| x.unwrap().get("oid"));
     Ok(result)
 }
 
 pub async fn get_matching_schemas<'a>(
     t: &Transaction<'a>,
-    schema_name: &str,
+    schema_names: &[&str],
 ) -> Result<impl Stream<Item = Oid>, tokio_postgres::Error> {
     let sql: &str = concat!(
         "select c.oid ",
         "from pg_catalog.pg_class c ",
         "where c.relkind = any(array['r','p']) ",
-        "and c.relnamespace in (select oid from pg_catalog.pg_namespace where nspname = $1) ",
+        "and c.relnamespace in (select oid from pg_catalog.pg_namespace where nspname = any($1)) ",
     );
-    let rows = t.query_raw(sql, &[&schema_name]).await?;
+    let rows = t.query_raw(sql, &[schema_names]).await?;
     let result = rows.map(|x| x.unwrap().get("oid"));
     Ok(result)
 }
@@ -302,15 +372,16 @@ impl Table {
     }
 }
 
-pub fn write_dot<W: io::Write>(
+fn write_dot<W: io::Write>(
     f: &mut W,
     tables: &BTreeMap<Oid, Table>,
     fks: &Vec<ForeignKeyConstraint>,
-    visible: &BTreeSet<Oid>,
+    visible: &Graph,
     edge_labels: bool,
 ) -> io::Result<()> {
     writeln!(f, "digraph g {{")?;
-    writeln!(f, "graph [nodesep=\"2.0\"]")?;
+    writeln!(f, "graph [nodesep=\"3.0\" ranksep=\"1.5\"]")?;
+    writeln!(f, "fontname=\"Helvetica,sans-serif\"")?;
     writeln!(
         f,
         "node [fontcolor=\"#000000\" fontname=\"Helvetica,sans-serif\"]"
@@ -319,11 +390,30 @@ pub fn write_dot<W: io::Write>(
         f,
         "edge [fontname=\"Helvetica,sans-serif\" fontsize=10.0 labeldistance=2.0]"
     )?;
-    for oid in visible {
-        if let Some(tbl) = tables.get(oid) {
-            tbl.write_dot(f)?;
+
+    // time to write all node descriptions, each in their subgraph. So, we do a
+    // dfs of the subgraphs and print as we go.
+    let mut cluster_string: String = String::new();
+    for elem in visible.elems() {
+        match elem {
+            GraphElem::Node(oid) => {
+                if let Some(tbl) = tables.get(&oid) {
+                    tbl.write_dot(f)?;
+                }
+            }
+            GraphElem::SubgraphEnter(lbl) => {
+                cluster_string.push_str(lbl);
+                cluster_string.retain(|c| !c.is_whitespace());
+                writeln!(f, "subgraph cluster_{cluster_string} {{")?;
+                cluster_string.clear();
+                writeln!(f, "label=\"{lbl}\";")?;
+            }
+            GraphElem::SubgraphExit => {
+                writeln!(f, "}}")?;
+            }
         }
     }
+    let visible: BTreeSet<Oid> = visible.nodes_recursive().collect();
     for fk in fks {
         if visible.contains(&fk.source) && visible.contains(&fk.target) {
             match (fk.source_cols.first(), fk.target_cols.first()) {

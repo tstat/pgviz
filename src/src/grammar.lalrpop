@@ -1,38 +1,25 @@
 use std::str::FromStr;
-use super::Expr;
+use super::{Ann, SExpr, Value};
 
 grammar;
 
-pub Expr: Expr<'input> = {
-    <e:Expr> "or" <e1:Expr1> => Expr::Or { lhs: Box::new(e), rhs: Box::new(e1) },
-    <e:Expr> "-" <e1:Expr1> => Expr::Difference { lhs: Box::new(e), rhs: Box::new(e1) },
-    <e1:Expr1> => e1,
+pub Expr: Ann<SExpr<'input>> = {
+    <x: Ann<RawExpr>> => x,
+}
+
+RawExpr: SExpr<'input> = {
+    "(" <func: Ann<Ident>> <args: Expr*> ")" => SExpr::App { func, args },
+    <x: Ident> => SExpr::Value(Value::Ident(x)),
+    <x: String> => SExpr::Value(Value::Ident(x)),
+    <x: Nat> => SExpr::Value(Value::Nat(x)),
 };
 
-pub Expr1: Expr<'input> = {
-    <e1:Expr1> "and" <e2:Expr2> => Expr::And { lhs: Box::new(e1), rhs: Box::new(e2) },
-    <e2:Expr2> => e2,
-}
-
-pub Expr2: Expr<'input> = {
-    "within" <n:Num> <t:Text> => Expr::Within { table_name: t, num_edges: n },
-    "schema" <t:Text> => Expr::Schema { schema_name: t },
-    "table" <t:Text> => Expr::Within { table_name: t, num_edges: 0 },
-    "tables" <mut ts:Comma<Text>> => {
-      let t0 = ts.pop().unwrap();
-      let t0 = Expr::Within { table_name: t0, num_edges: 0 };
-      ts.into_iter().fold(t0, |b,a| Expr::Or { lhs: Box::new(b), rhs: Box::new(Expr::Within { table_name: a, num_edges: 0 }) })
-    },
-    "(" <e:Expr> ")" => e,
-}
-
-// nonempty list separated by commas
-Comma<T>: Vec<T> = { 
-    <mut v:(<T> ",")*> <e:T> => {
-        v.push(e);
-        v
+Ann<T>: Ann<T> = {
+    <start: @L> <inner: T> <end: @R> => {
+            Ann { start, end, inner }
     }
 };
 
-Num: u32 = <s:r"[0-9]+"> => u32::from_str(s).unwrap();
-Text: &'input str = <s:r"[a-zA-Z_-]+"> => s;
+Nat: u32 = <s:r"[0-9]+"> => u32::from_str(s).unwrap();
+Ident: &'input str = <s:r"[a-zA-Z_-][[:alnum:]_-]*"> => s;
+String: &'input str = <s:r#""((?:[^"\\]|(?:\\).)*)""#> => s;
