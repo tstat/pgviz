@@ -38,7 +38,7 @@
           "${package-name}" = pkgs.rustPlatform.buildRustPackage {
             pname = package-name;
             version = "0.1.0";
-            cargoHash = "sha256-5pNtTKhPwT7BcqdUx0viU40dKIZgFNCkf6tBi6vl0D4=";
+            cargoHash = "sha256-cz0/zZYiOApy1xjIWMtaH45ikxftwRn4wQKIb499hTk=";
             src = ./src;
             buildInputs =
               let
